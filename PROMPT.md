@@ -1,4 +1,460 @@
-# Task: Port Improvements from Loop to Ralph-Orchestrator
+# Task: Implement ACP Adapter for Ralph-Orchestrator
+
+## ✅ DOCUMENTATION UPDATED (Dec 14, 2025)
+
+Updated documentation to reflect ACP v1.2.0 features:
+- `docs/index.md`: Updated version badge to 1.2.0, test count to 920+, added ACP to multi-agent support, added ACP Protocol Support feature card
+- `docs/changelog.md`: Added v1.1.0 and v1.2.0 entries with complete feature lists
+- `docs/quick-start.md`: Added ACP agent installation tab and usage examples
+- `docs/guide/configuration.md`: Added comprehensive ACP configuration section with permission modes, YAML config, and environment variables
+- `docs/api/cli.md`: Updated CLI examples, argument parser, and shell completion scripts for ACP options
+
+---
+
+## ✅ TASK COMPLETE
+
+**All 12 implementation steps completed successfully!**
+
+- **305 ACP tests passing** (8 integration tests skipped - require GOOGLE_API_KEY)
+- **Full documentation** in README.md
+- **CLI integration** working (`-a acp`, `--acp-agent`, `--acp-permission-mode`)
+- **Configuration** via ralph.yml and environment variables
+
+### Final Test Results
+```
+305 passed, 8 skipped in 1.34s
+```
+
+### Pull Request
+**PR #5**: https://github.com/mikeyobrien/ralph-orchestrator/pull/5
+- Branch: `feature/acp-support`
+- 21 commits, +9,743 lines across 33 files
+- Ready for review
+
+---
+
+## 📋 Manual End-to-End Testing Results (Dec 14, 2025)
+
+### Prerequisites Verification
+Both CLI tools are installed and available:
+- ✅ `gemini` CLI: v0.20.2 at `/home/arch/.npm-global/bin/gemini`
+- ✅ `claude` CLI: v2.0.69 at `/home/arch/.local/bin/claude`
+
+### E2E Test Results
+
+#### Gemini CLI (Native ACP Support) ✅ WORKING
+
+| Test | Result | Notes |
+|------|--------|-------|
+| Basic prompt | ✅ PASS | Returns expected response ("hello") |
+| Session initialization | ✅ PASS | `session/new` now includes required `mcpServers` param |
+| Notification parsing | ✅ PASS | Fixed to handle nested `update.sessionUpdate` format |
+| Streaming updates | ✅ PASS | `agent_thought_chunk` and `agent_message_chunk` accumulate correctly |
+| Permission auto_approve | ✅ PASS | Shell commands approved, history recorded |
+| Permission deny_all | ✅ PASS | Shell commands denied, Gemini falls back to built-in tools |
+| File operations | ✅ PASS | Works for files in workspace (Gemini sandbox restriction) |
+| Session persistence | ✅ PASS | Same session ID maintained across prompts |
+
+**Gemini Example:**
+```python
+adapter = ACPAdapter(
+    agent_command='gemini',
+    agent_args=['--experimental-acp'],  # Required flag for ACP mode
+    timeout=120,
+    permission_mode='auto_approve'
+)
+response = await adapter.aexecute('Say hello')
+# Success: True, Output: 'hello'
+```
+
+#### Claude CLI (No Native ACP Support) ⚠️ NOT SUPPORTED
+
+The Claude CLI does **not** have native ACP mode. Key findings:
+- Claude CLI uses its own `stream-json` format, NOT the ACP JSON-RPC protocol
+- Claude Code supports ACP only through "Zed's SDK adapter" (external integration)
+- The `--input-format stream-json --output-format stream-json` mode uses a different message schema
+
+**Workaround:** To use Claude with Ralph Orchestrator, use the existing `ClaudeAdapter` instead of `ACPAdapter`:
+```bash
+ralph run -a claude -p "Your prompt here"
+```
+
+### Test Matrix
+
+| Test Case | Gemini | Claude | Status |
+|-----------|--------|--------|--------|
+| Unit tests (305) | ✅ | N/A | PASS |
+| Protocol tests | ✅ | N/A | PASS |
+| Model tests | ✅ | N/A | PASS |
+| Handler tests | ✅ | N/A | PASS |
+| CLI integration | ✅ | N/A | PASS |
+| Config parsing | ✅ | N/A | PASS |
+| Orchestrator integration | ✅ | N/A | PASS |
+| E2E basic prompt | ✅ | ❌ No ACP mode | PASS/N/A |
+| E2E file operations | ✅ | ❌ No ACP mode | PASS/N/A |
+| E2E permission modes | ✅ | ❌ No ACP mode | PASS/N/A |
+
+### Fixes Applied During Testing
+
+1. **session/new parameter**: Added required `mcpServers: []` parameter per ACP spec
+2. **Notification format**: Fixed to handle Gemini's nested format:
+   - Before: Expected `{"kind": "...", "content": "..."}`
+   - After: Also handles `{"update": {"sessionUpdate": "...", "content": {...}}}`
+
+### Notes
+- Gemini CLI requires `--experimental-acp` flag for ACP mode
+- Gemini has workspace sandbox restrictions for file access
+- Permission handling works correctly for shell commands
+- Claude users should continue using the native `ClaudeAdapter` (`ralph run -a claude`)
+
+---
+
+## Current Progress - ACP Implementation
+
+### Step 1: ACPProtocol class (COMPLETED - Dec 13, 2025)
+- Created `src/ralph_orchestrator/adapters/acp_protocol.py` with:
+  - `ACPProtocol` class for JSON-RPC 2.0 message handling
+  - `MessageType` enum for message classification
+  - `ACPErrorCodes` class with standard JSON-RPC and ACP-specific error codes
+  - Methods: `create_request()`, `create_notification()`, `parse_message()`, `create_response()`, `create_error_response()`
+- Created `tests/test_acp_protocol.py` with 34 unit tests covering:
+  - Request creation and ID incrementing
+  - Notification creation (no ID)
+  - Message parsing for requests, notifications, responses, and errors
+  - Response and error response creation
+  - Round-trip serialization tests
+- All tests pass
+
+### Step 2: ACPMessage data models (COMPLETED - Dec 13, 2025)
+- Created `src/ralph_orchestrator/adapters/acp_models.py` with:
+  - `ACPRequest`, `ACPNotification`, `ACPResponse`, `ACPError`: Core JSON-RPC message types
+  - `ACPErrorObject`: Error object structure
+  - `UpdatePayload`, `SessionUpdate`: Session update notification handling
+  - `ToolCall`: Tool execution tracking with status
+  - `ACPSession`: Session state accumulation with streaming support
+  - `ACPAdapterConfig`: Adapter configuration with permission modes
+  - All dataclasses include `from_dict()` class methods for parsing
+- Created `tests/test_acp_models.py` with 43 unit tests covering:
+  - Dataclass creation and field access
+  - `from_dict()` parsing with valid and invalid data
+  - Session state accumulation (output, thoughts, tool calls)
+  - Session update processing by kind
+- All tests pass (77 total ACP tests)
+
+### Step 3: ACPClient subprocess manager (COMPLETED - Dec 13, 2025)
+- Created `src/ralph_orchestrator/adapters/acp_client.py` with:
+  - `ACPClient` class for subprocess lifecycle management
+  - `start()` / `stop()` for subprocess lifecycle with graceful shutdown
+  - `_read_loop()` for continuous stdout reading and JSON-RPC message parsing
+  - `_write_message()` with `asyncio.Lock` for thread-safe writes
+  - `send_request()` returning `Future` for response routing by ID
+  - `send_notification()` for fire-and-forget messages
+  - `on_notification()` / `on_request()` for callback registration
+  - Response routing to pending requests by ID
+  - Error response handling with `ACPClientError` exception
+- Created `tests/test_acp_client.py` with 25 unit tests covering:
+  - Initialization with defaults and custom args/timeout
+  - Subprocess spawn, pipe setup, and shutdown
+  - Message write/read cycle
+  - Request ID tracking and pending request management
+  - Response routing to resolve/reject Futures
+  - Notification and request handler callbacks
+  - Thread-safe write locking
+- All tests pass (102 total ACP tests)
+
+### Step 4: ACPAdapter with initialize/session flow (COMPLETED - Dec 13, 2025)
+- Created `src/ralph_orchestrator/adapters/acp.py` with:
+  - `ACPAdapter` class extending `ToolAdapter` base class
+  - `__init__()` accepting agent_command, agent_args, timeout, permission_mode
+  - `from_config()` factory method for `ACPAdapterConfig` integration
+  - `check_availability()` using `shutil.which()` to verify agent command
+  - `_initialize()` async method with full ACP handshake:
+    1. Start ACPClient subprocess
+    2. Send `initialize` request with protocol version and capabilities
+    3. Receive and validate initialize response
+    4. Send `session/new` request
+    5. Store session_id and create ACPSession state tracker
+  - `_handle_notification()` for session/update messages
+  - `_handle_request()` for incoming requests from agent
+  - `_handle_permission_request()` with basic permission modes (auto_approve, deny_all)
+  - `execute()` sync wrapper using `asyncio.run()`
+  - `aexecute()` async with initialization and prompt enhancement
+  - Signal handlers for graceful shutdown (SIGINT, SIGTERM)
+  - `kill_subprocess_sync()` for signal-safe subprocess termination
+  - `_shutdown()` async cleanup method
+- Created `tests/test_acp_adapter.py` with 24 unit tests covering:
+  - Initialization with defaults and custom values
+  - `from_config()` factory method
+  - Availability check with mocked shutil.which
+  - Initialize sequence with mocked ACPClient
+  - Idempotent initialization behavior
+  - Execute when unavailable (error handling)
+  - Async execute flow with initialization
+  - Prompt enhancement with orchestration context
+  - Signal handler registration
+  - Shutdown and subprocess cleanup
+- Updated `src/ralph_orchestrator/adapters/__init__.py` to export `ACPAdapter`
+- All tests pass (126 total ACP tests, 143 including adapter tests)
+
+### Step 5: session/prompt and streaming update handling (COMPLETED - Dec 13, 2025)
+- Updated `src/ralph_orchestrator/adapters/acp.py`:
+  - Full `_execute_prompt()` implementation:
+    1. Reset session state before each new prompt
+    2. Build messages array with user role and content
+    3. Send `session/prompt` request with sessionId and messages
+    4. Wait for response with timeout handling
+    5. Check for error stop_reason and build error response
+    6. Build ToolResponse with accumulated output and metadata
+  - Streaming update accumulation via `_handle_notification()`:
+    - `agent_message_chunk` → append to session output
+    - `agent_thought_chunk` → append to session thoughts
+    - `tool_call` → track new tool call
+    - `tool_call_update` → update tool call status/result
+  - Metadata includes: tool, agent, session_id, stop_reason, tool_calls_count, has_thoughts
+  - Timeout handling with informative error message
+- Added 12 new tests in `tests/test_acp_adapter.py`:
+  - Tests use async simulations to mock streaming during execution
+  - Covers: prompt sending, response building, streaming chunks, thought chunks
+  - Covers: tool call tracking, tool call updates, session reset, metadata
+  - Covers: error stop_reason handling, timeout handling, message formatting
+- All tests pass (155 total adapter/ACP tests)
+
+### Step 6: Permission handler (COMPLETED - Dec 13, 2025)
+- Created `src/ralph_orchestrator/adapters/acp_handlers.py` with:
+  - `PermissionRequest` dataclass for parsing permission request params
+  - `PermissionResult` dataclass with `to_dict()` for ACP response
+  - `ACPHandlers` class supporting four permission modes:
+    - `auto_approve`: Always approve all requests (for trusted environments)
+    - `deny_all`: Always deny all requests (for testing/restricted use)
+    - `allowlist`: Approve only operations matching patterns:
+      - Exact match: `'fs/read_text_file'`
+      - Glob patterns: `'fs/*'`, `'terminal/execute?'`
+      - Regex patterns: `'/^fs\\/.*$/'` (surrounded by slashes)
+    - `interactive`: Prompt user via stdin (falls back to deny if no terminal)
+  - Permission history tracking with `get_history()`, `clear_history()`
+  - Statistics: `get_approved_count()`, `get_denied_count()`
+  - Optional logging callback via `on_permission_log`
+- Updated `src/ralph_orchestrator/adapters/acp.py`:
+  - Added `permission_allowlist` parameter to `__init__` and `from_config`
+  - Integrated `ACPHandlers` instance for permission request handling
+  - Added `get_permission_history()` and `get_permission_stats()` methods
+  - `_handle_permission_request()` now delegates to `ACPHandlers`
+- Updated `src/ralph_orchestrator/adapters/__init__.py`:
+  - Exported `ACPHandlers`, `PermissionRequest`, `PermissionResult`
+- Created `tests/test_acp_handlers.py` with 43 unit tests covering:
+  - `PermissionRequest` and `PermissionResult` dataclasses
+  - All four permission modes with various scenarios
+  - Allowlist pattern matching (exact, glob, regex)
+  - Interactive mode (approval, denial, keyboard interrupt, EOF)
+  - History tracking and statistics
+  - Logging callback integration
+  - ACPAdapter integration tests
+- All tests pass (181 total ACP tests)
+
+### Step 7: File operation handlers (COMPLETED - Dec 13, 2025)
+- Updated `src/ralph_orchestrator/adapters/acp_handlers.py` with:
+  - `handle_read_file(params)` method for `fs/read_text_file` operations:
+    - Requires absolute path (rejects relative paths for security)
+    - Reads file content as UTF-8 text
+    - Returns `{"content": "..."}` on success
+    - Returns `{"error": {"code": ..., "message": "..."}}` on failure
+    - Error codes: -32602 (invalid params), -32001 (not found), -32002 (not a file), -32003 (permission denied), -32004 (not UTF-8), -32000 (other OS error)
+  - `handle_write_file(params)` method for `fs/write_text_file` operations:
+    - Requires absolute path (rejects relative paths for security)
+    - Writes content as UTF-8 text
+    - Creates parent directories if needed
+    - Returns `{"success": true}` on success
+    - Returns `{"error": {"code": ..., "message": "..."}}` on failure
+    - Error codes: -32602 (invalid params), -32002 (is directory), -32003 (permission denied), -32000 (other OS error)
+- Added 20 new tests in `tests/test_acp_handlers.py`:
+  - `TestACPHandlersReadFile`: 8 tests covering success, missing path, not found, is directory, relative path rejection, multiline content, empty file, unicode content
+  - `TestACPHandlersWriteFile`: 10 tests covering success, missing path, missing content, empty content, overwrite existing, create parent dirs, relative path rejection, is directory, unicode content, multiline content
+  - `TestACPHandlersFileIntegration`: 2 tests covering read/write roundtrip, large file handling (1MB)
+- All tests pass (201 total ACP tests)
+
+### Step 8: Terminal handlers (COMPLETED - Dec 13, 2025)
+- Created `Terminal` dataclass in `src/ralph_orchestrator/adapters/acp_handlers.py`:
+  - `id`: Unique terminal identifier
+  - `process`: subprocess.Popen instance
+  - `output_buffer`: Accumulated stdout/stderr
+  - `is_running` property to check process state
+  - `exit_code` property to get exit code
+  - `read_output()`: Non-blocking output read using select
+  - `kill()`: Graceful termination (SIGTERM → wait → SIGKILL)
+  - `wait()`: Wait for process with optional timeout
+- Added terminal tracking to ACPHandlers: `_terminals: dict[str, Terminal]`
+- Implemented five terminal handlers:
+  - `handle_terminal_create(params)`: Creates subprocess with stdout/stderr pipes
+    - Requires `command` (list of strings), optional `cwd`
+    - Returns `{"terminalId": "uuid"}`
+  - `handle_terminal_output(params)`: Reads available output
+    - Returns `{"output": "...", "done": bool}`
+  - `handle_terminal_wait_for_exit(params)`: Waits for process exit
+    - Optional `timeout` parameter
+    - Returns `{"exitCode": int}` or timeout error
+  - `handle_terminal_kill(params)`: Terminates process
+    - Returns `{"success": true}`
+  - `handle_terminal_release(params)`: Cleans up terminal resources
+    - Returns `{"success": true}`
+- Error codes: -32602 (invalid params), -32001 (not found), -32003 (permission), -32000 (general)
+- Updated `src/ralph_orchestrator/adapters/__init__.py` to export `Terminal`
+- Added 26 new tests in `tests/test_acp_handlers.py`:
+  - `TestACPHandlersTerminalCreate`: 6 tests
+  - `TestACPHandlersTerminalOutput`: 4 tests
+  - `TestACPHandlersTerminalWaitForExit`: 5 tests
+  - `TestACPHandlersTerminalKill`: 4 tests
+  - `TestACPHandlersTerminalRelease`: 4 tests
+  - `TestACPHandlersTerminalIntegration`: 3 tests (workflow, stderr, not found)
+- All tests pass (227 total ACP tests)
+
+### Step 9: ACP configuration support (COMPLETED - Dec 13, 2025)
+- Added `from_adapter_config()` class method to `ACPAdapterConfig`:
+  - Extracts ACP-specific settings from `AdapterConfig.tool_permissions`
+  - Applies environment variable overrides: `RALPH_ACP_AGENT`, `RALPH_ACP_PERMISSION_MODE`, `RALPH_ACP_TIMEOUT`
+  - Falls back to defaults for missing values
+- Updated `ralph init` template (`__main__.py`):
+  - Added ACP adapter section with `tool_permissions` for ACP-specific fields
+  - Includes `agent_command`, `agent_args`, `permission_mode`, `permission_allowlist`
+  - Documented permission modes in comments
+- ACP configuration structure in `ralph.yml`:
+  ```yaml
+  adapters:
+    acp:
+      enabled: true
+      timeout: 300
+      tool_permissions:
+        agent_command: gemini
+        agent_args: []
+        permission_mode: auto_approve
+        permission_allowlist: []
+  ```
+- Environment variable overrides:
+  - `RALPH_ACP_AGENT`: Override `agent_command`
+  - `RALPH_ACP_PERMISSION_MODE`: Override `permission_mode`
+  - `RALPH_ACP_TIMEOUT`: Override `timeout` (integer)
+- Created `tests/test_acp_config.py` with 25 tests covering:
+  - YAML parsing: basic, full options, disabled, simple boolean, missing (defaults)
+  - Environment variable overrides: agent, permission mode, timeout, invalid timeout
+  - Default values: ACPAdapterConfig defaults, from_dict, from_adapter_config
+  - Init template: creates ACP config, valid YAML
+  - Validation: permission modes, timeout, agent_command paths, agent_args
+- All tests pass (252 total ACP tests)
+
+### Step 10: CLI integration (COMPLETED - Dec 13, 2025)
+- Added `ACP` to `AgentType` enum in `main.py`
+- Updated CLI argument parser in `__main__.py`:
+  - Added `'acp'` to agent choices (`-a acp`)
+  - Added `--acp-agent` argument for specifying ACP agent binary (default: gemini)
+  - Added `--acp-permission-mode` argument with choices: auto_approve, deny_all, allowlist, interactive
+- Updated `agent_map` and `tool_name_map` to include 'acp' mappings
+- Updated `orchestrator.py`:
+  - Added import for `ACPAdapter`
+  - Added ACPAdapter initialization in `_initialize_adapters()`
+- Created `tests/test_acp_cli.py` with 13 tests covering:
+  - Agent choice validation
+  - AgentType enum verification
+  - CLI argument parsing for --acp-agent and --acp-permission-mode
+  - Agent/tool name mapping
+  - Orchestrator adapter initialization
+  - Auto-detection checks
+  - CLI config overrides
+  - Main entry point parsing
+  - Init template verification
+- All tests pass (311 total ACP + config tests, 265 ACP-only)
+
+### Step 11: Integration testing with Gemini CLI (COMPLETED - Dec 13, 2025)
+- Created `tests/conftest.py` with:
+  - `integration` marker for integration tests
+  - `slow` marker for long-running tests
+  - Auto-skip for integration tests when `GOOGLE_API_KEY` not set
+  - `temp_workspace` and `google_api_key` fixtures
+- Created `tests/test_acp_integration.py` with 28 tests:
+  - **TestACPIntegrationUnit** (7 tests): Adapter creation, config, availability
+  - **TestACPMockedIntegration** (5 tests): Initialize flow, execute, permissions
+  - **TestACPFileOperationsMocked** (4 tests): Read/write file handlers
+  - **TestACPTerminalOperationsMocked** (3 tests): Terminal create/workflow/not found
+  - **TestACPGeminiIntegration** (8 tests): Real integration tests (require API key)
+    - Basic prompt response
+    - Streaming updates
+    - Permission flow (auto_approve, deny_all)
+    - Error handling and timeout
+    - Shutdown cleanup
+    - Session persistence
+  - **TestACPManualTestingGuide** (1 test): Documentation for manual testing
+- Test execution:
+  - 20 unit/mocked tests passing
+  - 8 integration tests properly skipped when GOOGLE_API_KEY not set
+  - 285 total ACP tests passing
+
+### Step 12: Final integration with orchestrator loop (COMPLETED - Dec 13, 2025)
+- Added "acp" to CostTracker.COSTS dictionary (free tier, as ACP doesn't provide billing):
+  - Input: $0.00 (billing depends on underlying agent)
+  - Output: $0.00 (billing depends on underlying agent)
+- Created `tests/test_acp_orchestrator.py` with 20 tests covering:
+  - **TestACPCostTracking** (4 tests): Cost tracker ACP entry, zero cost, usage recording
+  - **TestACPMetricsRecording** (4 tests): Metrics increment, checkpoint tracking, serialization
+  - **TestACPCheckpointing** (2 tests): Interval calculation, response serialization
+  - **TestACPMultiIteration** (2 tests): Session persistence, reinit after shutdown
+  - **TestACPGracefulShutdown** (4 tests): Signal safety, shutdown cleanup
+  - **TestACPOrchestratorIntegration** (4 tests): Interface compliance, response format
+- Test execution:
+  - 305 total ACP tests passing
+  - 8 integration tests properly skipped (GOOGLE_API_KEY not set)
+
+**ACP Implementation Complete!** All 12 steps finished.
+
+### Documentation Update (COMPLETED - Dec 13, 2025)
+- Updated README.md with:
+  - Version bump to v1.2.0
+  - ACP-compliant agents in prerequisites
+  - ACP configuration example in ralph.yml
+  - CLI options (--acp-agent, --acp-permission-mode)
+  - Project structure showing ACP adapter files
+  - Version history entry for ACP features
+
+### Documentation Update (COMPLETED - Dec 14, 2025)
+- Updated docs/guide/agents.md with comprehensive ACP documentation:
+  - Added full ACP agent section alongside Claude, Q Chat, and Gemini
+  - Detailed permission modes (auto_approve, deny_all, allowlist, interactive)
+  - Supported operations table (file and terminal operations)
+  - Configuration examples (CLI, ralph.yml, environment variables)
+  - Updated Agent Comparison table with ACP column and new rows
+  - Updated Decision Tree diagram to include ACP path
+  - Added Task-Agent Mapping for CI/CD, sandboxed execution, multi-agent workflows
+  - Added ACP Configuration section with examples
+  - Added ACP Features section with permission mode and allowlist examples
+  - Documented Agent Scratchpad feature for context persistence
+
+---
+
+## ACP Implementation Summary
+
+**Total Tests**: 305 ACP-specific tests + 620 existing = 925+ tests passing
+
+**Files Created**:
+- `src/ralph_orchestrator/adapters/acp.py` - Main ACP adapter
+- `src/ralph_orchestrator/adapters/acp_protocol.py` - JSON-RPC 2.0 protocol
+- `src/ralph_orchestrator/adapters/acp_client.py` - Subprocess manager
+- `src/ralph_orchestrator/adapters/acp_models.py` - Data models
+- `src/ralph_orchestrator/adapters/acp_handlers.py` - Permission/file/terminal handlers
+- `tests/test_acp_*.py` - 9 test files
+
+**Features Implemented**:
+1. JSON-RPC 2.0 message protocol
+2. Subprocess lifecycle management
+3. ACP initialization handshake (initialize, session/new)
+4. Session/prompt execution with streaming updates
+5. Permission handling (4 modes: auto_approve, deny_all, allowlist, interactive)
+6. File operations (read_text_file, write_text_file)
+7. Terminal operations (create, output, wait_for_exit, kill, release)
+8. Configuration via ralph.yml and environment variables
+9. CLI integration (-a acp, --acp-agent, --acp-permission-mode)
+10. Cost tracking integration (ACP has zero cost as billing depends on agent)
+11. Full orchestrator loop integration
+
+---
+
+# Previous Task: Port Improvements from Loop to Ralph-Orchestrator
 
 ## Context
 

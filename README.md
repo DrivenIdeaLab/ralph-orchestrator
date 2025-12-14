@@ -1,7 +1,7 @@
 # Ralph Orchestrator
 
 [![Documentation](https://img.shields.io/badge/docs-mkdocs-blue)](https://mikeyobrien.github.io/ralph-orchestrator/)
-[![Version](https://img.shields.io/badge/version-1.0.0-green)](https://github.com/mikeyobrien/ralph-orchestrator/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0-green)](https://github.com/mikeyobrien/ralph-orchestrator/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](tests/)
 
@@ -19,19 +19,20 @@ Ralph Orchestrator implements a simple but effective pattern for autonomous task
 
 Based on the Ralph Wiggum technique by [Geoffrey Huntley](https://ghuntley.com/ralph/), this implementation provides a robust, tested, and feature-complete orchestration system for AI-driven development.
 
-## ✅ Production Ready - v1.1.0
+## ✅ Production Ready - v1.2.0
 
 - **Claude Integration**: ✅ COMPLETE (with Agent SDK)
 - **Q Chat Integration**: ✅ COMPLETE
 - **Gemini Integration**: ✅ COMPLETE
+- **ACP Protocol Support**: ✅ COMPLETE (Agent Client Protocol)
 - **Core Orchestration**: ✅ OPERATIONAL
-- **Test Suite**: ✅ 620+ tests passing
+- **Test Suite**: ✅ 920+ tests passing
 - **Documentation**: ✅ [COMPLETE](https://mikeyobrien.github.io/ralph-orchestrator/)
 - **Production Deployment**: ✅ [READY](https://mikeyobrien.github.io/ralph-orchestrator/advanced/production-deployment/)
 
 ## Features
 
-- 🤖 **Multiple AI Agent Support**: Works with Claude, Q Chat, and Gemini CLI tools
+- 🤖 **Multiple AI Agent Support**: Works with Claude, Q Chat, Gemini CLI, and ACP-compliant agents
 - 🔍 **Auto-detection**: Automatically detects which AI agents are available
 - 🌐 **WebSearch Support**: Claude can search the web for current information
 - 💾 **Checkpointing**: Git-based async checkpointing for recovery and history
@@ -44,6 +45,7 @@ Based on the Ralph Wiggum technique by [Geoffrey Huntley](https://ghuntley.com/r
 - 🔒 **Security Features**: Automatic masking of API keys et sensitive data in logs
 - ⚡ **Async-First Design**: Non-blocking I/O throughout (logging, git operations)
 - 📝 **Inline Prompts**: Run with `-p "your task"` without needing a file
+- 🧠 **Agent Scratchpad**: ACP agents persist context across iterations via `.agent/scratchpad.md`
 
 ## Installation
 
@@ -84,6 +86,13 @@ At least one AI CLI tool must be installed:
   npm install -g @google/gemini-cli
   ```
 
+- **ACP-Compliant Agents** (Agent Client Protocol)
+  ```bash
+  # Any ACP-compliant agent can be used via the ACP adapter
+  # Example: Gemini CLI with ACP mode
+  ralph run -a acp --acp-agent gemini
+  ```
+
 ## Quick Start
 
 ### 1. Initialize a project
@@ -100,7 +109,7 @@ This creates:
 Edit `ralph.yml` to customize settings:
 ```yaml
 # Ralph Orchestrator Configuration
-agent: auto                    # Which agent to use: claude, q, gemini, auto
+agent: auto                    # Which agent to use: claude, q, gemini, acp, auto
 prompt_file: PROMPT.md         # Path to prompt file
 max_iterations: 100            # Maximum iterations before stopping
 max_runtime: 14400             # Maximum runtime in seconds (4 hours)
@@ -117,6 +126,14 @@ adapters:
   gemini:
     enabled: true
     timeout: 300
+  acp:                        # Agent Client Protocol adapter
+    enabled: true
+    timeout: 300
+    tool_permissions:
+      agent_command: gemini   # Command to run the ACP agent
+      agent_args: []          # Additional arguments
+      permission_mode: auto_approve  # auto_approve, deny_all, allowlist, interactive
+      permission_allowlist: []  # Patterns for allowlist mode
 ```
 
 ### 3. Edit PROMPT.md with your task
@@ -153,6 +170,7 @@ ralph -c ralph.yml
 ralph run -a claude
 ralph run -a q
 ralph run -a gemini
+ralph run -a acp               # ACP-compliant agent
 
 # Check status
 ralph status
@@ -178,13 +196,17 @@ Commands:
 
 Core Options:
   -c, --config CONFIG             Configuration file (YAML format)
-  -a, --agent {claude,q,gemini,auto}  AI agent to use (default: auto)
+  -a, --agent {claude,q,gemini,acp,auto}  AI agent to use (default: auto)
   -P, --prompt-file FILE          Prompt file path (default: PROMPT.md)
   -p, --prompt-text TEXT          Inline prompt text (overrides file)
   -i, --max-iterations N          Maximum iterations (default: 100)
   -t, --max-runtime SECONDS      Maximum runtime (default: 14400)
   -v, --verbose                   Enable verbose output
   -d, --dry-run                   Test mode without executing agents
+
+ACP Options:
+  --acp-agent COMMAND             ACP agent command (default: gemini)
+  --acp-permission-mode MODE      Permission handling: auto_approve, deny_all, allowlist, interactive
 
 Advanced Options:
   --max-tokens MAX_TOKENS         Maximum total tokens (default: 1000000)
@@ -195,6 +217,75 @@ Advanced Options:
   --no-archive                    Disable prompt archiving
   --no-metrics                    Disable metrics collection
 ```
+
+## ACP (Agent Client Protocol) Integration
+
+Ralph supports any ACP-compliant agent through its ACP adapter. This enables integration with agents like Gemini CLI that implement the [Agent Client Protocol](https://github.com/anthropics/agent-client-protocol).
+
+### Quick Start with ACP
+
+```bash
+# Basic usage with Gemini CLI
+ralph run -a acp --acp-agent gemini
+
+# With permission mode
+ralph run -a acp --acp-agent gemini --acp-permission-mode auto_approve
+```
+
+### Permission Modes
+
+The ACP adapter supports four permission modes for handling agent tool requests:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `auto_approve` | Approve all requests automatically | Trusted environments, CI/CD |
+| `deny_all` | Deny all permission requests | Testing, sandboxed execution |
+| `allowlist` | Only approve matching patterns | Production with specific tools |
+| `interactive` | Prompt user for each request | Development, manual oversight |
+
+### Configuration
+
+Configure ACP in `ralph.yml`:
+
+```yaml
+adapters:
+  acp:
+    enabled: true
+    timeout: 300
+    tool_permissions:
+      agent_command: gemini      # Agent CLI command
+      agent_args: []             # Additional CLI arguments
+      permission_mode: auto_approve
+      permission_allowlist:      # For allowlist mode
+        - "fs/read_text_file:*.py"
+        - "fs/write_text_file:src/*"
+        - "terminal/create:pytest*"
+```
+
+### Agent Scratchpad
+
+ACP agents maintain context across iterations via `.agent/scratchpad.md`. This file persists:
+- Progress from previous iterations
+- Decisions and context
+- Current blockers or issues
+- Remaining work items
+
+The scratchpad enables agents to continue from where they left off rather than restarting each iteration.
+
+### Supported Operations
+
+The ACP adapter handles these agent requests:
+
+**File Operations:**
+- `fs/read_text_file` - Read file contents (with path security validation)
+- `fs/write_text_file` - Write file contents (with path security validation)
+
+**Terminal Operations:**
+- `terminal/create` - Create subprocess with command
+- `terminal/output` - Read process output
+- `terminal/wait_for_exit` - Wait for process completion
+- `terminal/kill` - Terminate process
+- `terminal/release` - Release terminal resources
 
 ## How It Works
 
@@ -249,7 +340,12 @@ ralph-orchestrator/
 │       │   ├── base.py      # Base adapter interface
 │       │   ├── claude.py    # Claude Agent SDK adapter
 │       │   ├── gemini.py    # Gemini CLI adapter
-│       │   └── qchat.py     # Q Chat adapter
+│       │   ├── qchat.py     # Q Chat adapter
+│       │   ├── acp.py       # ACP (Agent Client Protocol) adapter
+│       │   ├── acp_protocol.py  # JSON-RPC 2.0 protocol handling
+│       │   ├── acp_client.py    # Subprocess manager
+│       │   ├── acp_models.py    # Data models
+│       │   └── acp_handlers.py  # Permission/file/terminal handlers
 │       ├── output/          # Output formatting (NEW)
 │       │   ├── base.py      # Base formatter interface
 │       │   ├── console.py   # Rich console output
@@ -267,7 +363,8 @@ ralph-orchestrator/
 │   ├── test_async_logger.py
 │   ├── test_output_formatters.py
 │   ├── test_config.py
-│   └── test_integration.py
+│   ├── test_integration.py
+│   └── test_acp_*.py        # ACP adapter tests (305+ tests)
 ├── docs/                    # Documentation
 ├── PROMPT.md               # Task description (user created)
 ├── ralph.yml               # Configuration file (created by init)
@@ -497,6 +594,19 @@ MIT License - See LICENSE file for details
 - **Research**: [Ralph Wiggum Research](../)
 
 ## Version History
+
+- **v1.2.0** (2025-12)
+  - **ACP (Agent Client Protocol) Support**: Full integration with ACP-compliant agents
+    - JSON-RPC 2.0 message protocol
+    - Permission handling (auto_approve, deny_all, allowlist, interactive)
+    - File operations (read/write with security)
+    - Terminal operations (create, output, wait, kill, release)
+    - Session management and streaming updates
+    - Agent scratchpad mechanism for context persistence across iterations
+  - New CLI options: `--acp-agent`, `--acp-permission-mode`
+  - Configuration support in ralph.yml
+  - 305+ new ACP-specific tests
+  - Expanded test suite (920+ tests)
 
 - **v1.1.0** (2025-12)
   - Async-first architecture for non-blocking operations

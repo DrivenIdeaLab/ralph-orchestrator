@@ -83,6 +83,16 @@ adapters:
   gemini:
     enabled: true
     timeout: 300
+  # ACP (Agent Client Protocol) adapter for Gemini CLI and other ACP-compatible agents
+  acp:
+    enabled: true
+    timeout: 300
+    # ACP-specific settings (stored in tool_permissions)
+    tool_permissions:
+      agent_command: gemini
+      agent_args: []
+      permission_mode: auto_approve  # auto_approve, deny_all, allowlist, interactive
+      permission_allowlist: []       # Patterns for allowlist mode: "fs/*", "/^terminal\\/.*$/"
 """)
         _console.print_success("Created ralph.yml configuration")
 
@@ -459,9 +469,22 @@ Examples:
         
         p.add_argument(
             "-a", "--agent",
-            choices=["claude", "q", "gemini", "auto"],
+            choices=["claude", "q", "gemini", "acp", "auto"],
             default="auto",
             help="AI agent to use (default: auto)"
+        )
+
+        p.add_argument(
+            "--acp-agent",
+            default=None,
+            help="ACP agent binary/command (default: gemini)"
+        )
+
+        p.add_argument(
+            "--acp-permission-mode",
+            choices=["auto_approve", "deny_all", "allowlist", "interactive"],
+            default=None,
+            help="ACP permission mode (default: auto_approve)"
         )
         
         p.add_argument(
@@ -633,6 +656,7 @@ Examples:
         "qchat": AgentType.Q,
         "gemini": AgentType.GEMINI,
         "g": AgentType.GEMINI,
+        "acp": AgentType.ACP,
         "auto": AgentType.AUTO
     }
     
@@ -734,9 +758,14 @@ Examples:
             "q": "qchat",
             "claude": "claude",
             "gemini": "gemini",
+            "acp": "acp",
             "auto": "auto"
         }
         primary_tool = tool_name_map.get(agent_name, agent_name)
+
+        # Pass ACP-specific CLI arguments if using ACP adapter
+        acp_agent = getattr(args, 'acp_agent', None)
+        acp_permission_mode = getattr(args, 'acp_permission_mode', None)
 
         # Pass full config to orchestrator so prompt_text is available
         orchestrator = RalphOrchestrator(
@@ -747,7 +776,9 @@ Examples:
             track_costs=True,  # Enable cost tracking by default
             max_cost=config.max_cost,
             checkpoint_interval=config.checkpoint_interval,
-            verbose=config.verbose
+            verbose=config.verbose,
+            acp_agent=acp_agent,
+            acp_permission_mode=acp_permission_mode
         )
 
         # Enable all tools for Claude adapter (including WebSearch)

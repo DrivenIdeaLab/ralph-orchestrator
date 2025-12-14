@@ -16,6 +16,7 @@ from .adapters.base import ToolAdapter
 from .adapters.claude import ClaudeAdapter
 from .adapters.qchat import QChatAdapter
 from .adapters.gemini import GeminiAdapter
+from .adapters.acp import ACPAdapter
 from .metrics import Metrics, CostTracker
 from .safety import SafetyGuard
 from .context import ContextManager
@@ -42,7 +43,9 @@ class RalphOrchestrator:
         max_cost: float = 10.0,
         checkpoint_interval: int = 5,
         archive_dir: str = "./prompts/archive",
-        verbose: bool = False
+        verbose: bool = False,
+        acp_agent: str = None,
+        acp_permission_mode: str = None
     ):
         """Initialize the orchestrator.
         
@@ -56,7 +59,12 @@ class RalphOrchestrator:
             checkpoint_interval: Git checkpoint frequency
             archive_dir: Directory for prompt archives
             verbose: Enable verbose logging output
+            acp_agent: ACP agent command (e.g., claude-code-acp, gemini)
+            acp_permission_mode: ACP permission handling mode
         """
+        # Store ACP-specific settings
+        self.acp_agent = acp_agent
+        self.acp_permission_mode = acp_permission_mode
         # Handle both config object and individual parameters
         if hasattr(prompt_file_or_config, 'prompt_file'):
             # It's a config object
@@ -93,10 +101,11 @@ class RalphOrchestrator:
         
         # Initialize adapters
         self.adapters = self._initialize_adapters()
-        self.current_adapter = self.adapters.get(primary_tool)
+        self.current_adapter = self.adapters.get(self.primary_tool)
         
         if not self.current_adapter:
-            raise ValueError(f"Unknown tool: {primary_tool}")
+            logger.error(f"DEBUG: primary_tool={self.primary_tool}, adapters={list(self.adapters.keys())}")
+            raise ValueError(f"Unknown tool: {self.primary_tool}")
         
         # Signal handling - use basic signal registration here
         # The async handlers will be set up when arun() is called
@@ -122,7 +131,7 @@ class RalphOrchestrator:
     def _initialize_adapters(self) -> Dict[str, ToolAdapter]:
         """Initialize available adapters."""
         adapters = {}
-        
+
         # Try to initialize each adapter
         try:
             adapter = ClaudeAdapter(verbose=self.verbose)
@@ -133,7 +142,7 @@ class RalphOrchestrator:
                 logger.warning("Claude SDK not available")
         except Exception as e:
             logger.warning(f"Claude adapter error: {e}")
-        
+
         try:
             adapter = QChatAdapter()
             if adapter.available:
@@ -143,7 +152,7 @@ class RalphOrchestrator:
                 logger.warning("Q Chat CLI not available")
         except Exception as e:
             logger.warning(f"Q Chat adapter error: {e}")
-        
+
         try:
             adapter = GeminiAdapter()
             if adapter.available:
@@ -153,7 +162,23 @@ class RalphOrchestrator:
                 logger.warning("Gemini CLI not available")
         except Exception as e:
             logger.warning(f"Gemini adapter error: {e}")
-        
+
+        # Initialize ACP adapter with CLI parameters
+        try:
+            acp_kwargs = {}
+            if self.acp_agent:
+                acp_kwargs['agent_command'] = self.acp_agent
+            if self.acp_permission_mode:
+                acp_kwargs['permission_mode'] = self.acp_permission_mode
+            adapter = ACPAdapter(**acp_kwargs)
+            if adapter.available:
+                adapters['acp'] = adapter
+                logger.info(f"ACP adapter initialized (agent: {adapter.agent_command})")
+            else:
+                logger.warning("ACP agent not available")
+        except Exception as e:
+            logger.warning(f"ACP adapter error: {e}")
+
         return adapters
     
     def _signal_handler(self, signum, frame):
@@ -356,9 +381,11 @@ class RalphOrchestrator:
             verbose=self.verbose
         )
         
-        if not response.success and len(self.adapters) > 1:
-            # Try fallback adapters
+        if not response.success and len(self.adapters) > 1 and not self.stop_requested:
+            # Try fallback adapters (skip if shutdown requested)
             for name, adapter in self.adapters.items():
+                if self.stop_requested:
+                    break
                 if adapter != self.current_adapter:
                     logger.info(f"Falling back to {name}")
                     response = await adapter.aexecute(
