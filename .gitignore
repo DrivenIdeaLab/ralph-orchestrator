@@ -1,3 +1,6 @@
+# Rust
+/target/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -32,6 +35,8 @@ env/
 *.swp
 *.swo
 *~
+*.bak
+*.orig
 .DS_Store
 
 # Ralph specific
@@ -49,6 +54,7 @@ ralph_metrics_*.json
 htmlcov/
 .pytest_cache/
 .tox/
+tui-validation/
 
 # Documentation
 docs/_build/site/
@@ -56,3 +62,6 @@ site/
 
 .worktrees
 PROMPT.md
+# But allow benchmark task prompts
+!bench/tasks/**/PROMPT.md
+.tmp-ralph-claude-code
