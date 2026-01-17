@@ -6,7 +6,7 @@
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 
 
-A hat-based multi-agent orchestration framework that keeps AI agents in a loop until the task is done.
+A hat-based orchestration framework that keeps Ralph in a loop until the task is done.
 
 > "Me fail English? That's unpossible!" - Ralph Wiggum
 
@@ -32,9 +32,22 @@ v1.0.0 was ralphed into existence with little oversight and guidance. v2.0.0 is 
 
 ## What is Ralph?
 
-Ralph implements the [Ralph Wiggum technique](https://ghuntley.com/ralph/) — autonomous task completion through continuous AI agent iteration. Unlike simple loops, Ralph v2 introduces **hat-based orchestration**: specialized agent roles that coordinate through events.
+Ralph implements the [Ralph Wiggum technique](https://ghuntley.com/ralph/) — autonomous task completion through continuous iteration.
 
-> "The orchestrator is a thin coordination layer, not a platform. Agents are smart; let them do the work."
+> "The orchestrator is a thin coordination layer, not a platform. Ralph is smart; let Ralph do the work."
+
+### Two Modes of Operation
+
+Ralph supports two orchestration styles:
+
+| Mode | Description | Best For |
+|------|-------------|----------|
+| **Traditional** | Simple loop with no hats — Ralph iterates until done | Quick tasks, simple automation, minimal config |
+| **Hat-Based** | Specialized Ralph personas coordinate through events | Complex workflows, multi-step processes, role separation |
+
+**Traditional mode** is the original Ralph Wiggum approach: start a loop, let it run until it outputs the completion promise. No roles, no events, just iteration.
+
+**Hat-based mode** adds structure: specialized personas coordinate through events. You define the roles that fit your workflow — reviewers, testers, documenters, whatever makes sense. Presets provide ready-made patterns like TDD or spec-driven development.
 
 ### The Ralph Tenets
 
@@ -50,11 +63,11 @@ See [AGENTS.md](AGENTS.md) for the full philosophy.
 ## Features
 
 - **Multi-Backend Support** — Works with Claude Code, Kiro, Gemini CLI, Codex, and Amp
-- **Hat System** — Specialized agent personas with distinct behaviors
+- **Hat System** — Specialized Ralph personas with distinct behaviors
 - **Event-Driven Coordination** — Hats communicate through typed events with glob pattern matching
 - **Backpressure Enforcement** — Gates that reject incomplete work (tests, lint, typecheck)
 - **Presets Library** — 20+ pre-configured workflows for common development patterns
-- **Interactive TUI** — Real-time terminal UI for monitoring agent activity (experimental)
+- **Interactive TUI** — Real-time terminal UI for monitoring Ralph's activity (experimental)
 - **Session Recording** — Record and replay sessions for debugging and testing (experimental)
 
 ## Installation
@@ -131,10 +144,10 @@ The v1 Python version is no longer maintained. See [v1.2.3](https://github.com/m
 ### 1. Initialize a Project
 
 ```bash
-# Minimal config for Claude (recommended)
+# Traditional mode — simple loop, no hats (recommended for getting started)
 ralph init --backend claude
 
-# Use a preset workflow
+# Hat-based mode — use a preset workflow with specialized personas
 ralph init --preset tdd-red-green
 
 # Combine preset with different backend
@@ -144,7 +157,7 @@ ralph init --preset spec-driven --backend kiro
 ralph init --list-presets
 ```
 
-This creates `ralph.yml` in your current directory.
+This creates `ralph.yml` in your current directory. Without a preset, you get traditional mode (no hats). With a preset, you get hat-based orchestration.
 
 ### 2. Define Your Task
 
@@ -210,10 +223,12 @@ These commands spawn an interactive AI session with bundled SOPs — perfect for
 
 Ralph uses a YAML configuration file (`ralph.yml` by default).
 
-### Minimal Configuration
+### Traditional Mode (No Hats)
+
+The simplest configuration — just a loop that runs until completion:
 
 ```yaml
-# ralph.yml
+# ralph.yml — Traditional mode
 cli:
   backend: "claude"
 
@@ -221,6 +236,35 @@ event_loop:
   completion_promise: "LOOP_COMPLETE"
   max_iterations: 100
 ```
+
+This runs Ralph in a loop. No hats, no events, no role switching. Ralph iterates until it outputs `LOOP_COMPLETE` or hits the iteration limit.
+
+### Hat-Based Mode (Specialized Personas)
+
+Add a `hats` section to enable role-based orchestration. Hats subscribe to events (triggers) and publish events when done:
+
+```yaml
+# ralph.yml — Hat-based mode (example structure)
+cli:
+  backend: "claude"
+
+event_loop:
+  completion_promise: "LOOP_COMPLETE"
+  max_iterations: 100
+  starting_event: "task.start"
+
+hats:
+  my_hat:
+    name: "🎯 My Hat"
+    triggers: ["task.start"]        # Events that activate this hat
+    publishes: ["work.done"]        # Events this hat can emit
+    instructions: |
+      Your instructions here...
+```
+
+With hats, Ralph publishes a starting event, which triggers the matching hat. That hat does its work and publishes an event, potentially triggering other hats. This event-driven handoff continues until completion.
+
+> **Tip:** Use `ralph init --preset <name>` to get pre-configured hat workflows. See [Presets](#presets) for ready-made patterns like TDD, spec-driven development, and more.
 
 ### Full Configuration Reference
 
@@ -329,7 +373,7 @@ ralph init --preset debug --force
 
 ### Hats
 
-Hats are specialized agent personas. Each hat has:
+Hats are specialized Ralph personas. Each hat has:
 
 - **Triggers**: Events that activate this hat
 - **Publishes**: Events this hat can emit
